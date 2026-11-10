@@ -4,10 +4,9 @@
 Serum Bridge for the Arturia KeyLab Essential mk3 in FL Studio.
 
 Wraps Arturia's own FL Studio script (loaded from its installed folder, not
-copied) so the normal DAW integration keeps working, and adds Serum 2 preset
-browsing:
+copied) so the normal DAW integration keeps working, and adds Serum 2 control:
 
-  While Serum 2's plugin window is focused
+  While a Serum 2 window is focused (directly on a channel, or inside Patcher)
     Main encoder turn ...... previous / next preset
     Context button 3 ....... previous preset
     Context button 4 ....... next preset
@@ -19,9 +18,8 @@ Arturia's script unchanged.
 
 How it reaches Serum: Serum 2's "CCForRocker Preset +/-" preference steps
 presets on a MIDI CC rising edge. The bridge sends those CCs with
-device.forwardMIDICC to a dedicated MIDI port (SERUM_PORT, default 100); set
-Serum's wrapper MIDI input port to that number. Don't use the KeyLab's own
-port there: Serum would then also receive every raw KeyLab CC. See README.md.
+device.forwardMIDICC, which delivers to plugins whose wrapper MIDI input port
+equals the port in the message (SERUM_PORT, default 100). See README.md.
 """
 
 import os
@@ -47,49 +45,24 @@ def _setting(name, default):
 
 PRESET_NEXT_CC = _setting("PRESET_NEXT_CC", 14)
 PRESET_PREV_CC = _setting("PRESET_PREV_CC", 15)
+SERUM_PORT = _setting("SERUM_PORT", 100) & 0x7F   # top byte of a signed 32-bit message
+FORWARD_MODE = _setting("FORWARD_MODE", 1)        # 0 all plugins, 1 focused, 2 selected channels
 STEP_INTERVAL_MS = _setting("STEP_INTERVAL_MS", 150)
 MAX_QUEUED_STEPS = _setting("MAX_QUEUED_STEPS", 8)
+
+KNOBS_TO_MACROS = _setting("KNOBS_TO_MACROS", True)
+MACRO_CCS = list(_setting("MACRO_CCS", [56, 57, 58, 59, 60, 61, 62, 63]))
+
+PATCHER_IS_SERUM_HOST = _setting("PATCHER_IS_SERUM_HOST", True)
+PATCHER_CHANNEL_FILTER = _setting("PATCHER_CHANNEL_FILTER", "")
+
 PREVIEW_ENABLED = _setting("PREVIEW_ENABLED", True)
 PREVIEW_NOTES = list(_setting("PREVIEW_NOTES", [60]))
 PREVIEW_VELOCITY = _setting("PREVIEW_VELOCITY", 100)
 PREVIEW_DELAY_MS = _setting("PREVIEW_DELAY_MS", 250)
 PREVIEW_LENGTH_MS = _setting("PREVIEW_LENGTH_MS", 800)
 
-SERUM_PORT = _setting("SERUM_PORT", 100) & 0x7F  # top byte of a signed 32-bit message
-# forwardMIDICC target: 0 all plugins on SERUM_PORT, 1 focused plugin, 2 selected channels.
-FORWARD_MODE = _setting("FORWARD_MODE", 1)
-# Serum inside Patcher: FL's "focused plugin" is Patcher, so send to every plugin
-# on SERUM_PORT instead. Give only the Serums you browse that port.
-PATCHER_FORWARD_MODE = _setting("PATCHER_FORWARD_MODE", 0)
-# FL can't tell which plugin inside Patcher is focused, so a focused Patcher window
-# is treated as "Serum inside Patcher". Optionally only for Patcher channels whose
-# name contains PATCHER_CHANNEL_FILTER (e.g. "BAND"); "" = every Patcher.
-PATCHER_IS_SERUM_HOST = _setting("PATCHER_IS_SERUM_HOST", True)
-PATCHER_CHANNEL_FILTER = _setting("PATCHER_CHANNEL_FILTER", "")
 DEBUG = _setting("DEBUG", False)
-
-
-def _log_path():
-    here = globals().get("__file__")
-    folder = os.path.dirname(os.path.abspath(here)) if here else os.path.join(
-        os.path.expanduser("~"), "Documents", "Image-Line", "FL Studio", "Settings", "Hardware",
-        "Serum Bridge KeyLab Essential mk3")
-    return os.path.join(folder, "serum_bridge_debug.log")
-
-
-LOG_PATH = _log_path()
-
-
-def _log(*parts):
-    """Print to FL's Script output; with DEBUG on, also append to serum_bridge_debug.log."""
-    text = " ".join(str(p) for p in parts)
-    print(text)
-    if DEBUG:
-        try:
-            with open(LOG_PATH, "a", encoding="utf-8") as f:
-                f.write("%s %s\n" % (time.strftime("%H:%M:%S"), text))
-        except Exception:
-            pass
 
 EDGE_GAP_MS = 20            # between the CC=0 and CC=127 halves of one step
 
@@ -99,20 +72,20 @@ CC_CONTEXT4 = 47
 CC_MAIN_ENCODER = 116       # relative: >64 clockwise, <64 counter-clockwise
 CC_KNOBS = (96, 97, 98, 99, 100, 101, 102, 103)   # knobs 1-8, absolute 0-127
 
-KNOBS_TO_MACROS = _setting("KNOBS_TO_MACROS", True)
-# Serum 2 lists its 8 macros right after this parameter. Macro names change per
-# preset (e.g. "DRIVE"), so they're found by position, not by name.
+# Serum 2 lists its 8 macros right after this parameter. Presets rename the
+# macros (e.g. "DRIVE"), so they're found by position, not by name.
 MACRO_ANCHOR_PARAM = "Mod 64 Out"
-# CCs sent for knobs 1-8 when Serum sits inside Patcher (MIDI-learn them in Serum).
-MACRO_CCS = list(_setting("MACRO_CCS", [20, 21, 22, 23, 24, 25, 26, 27]))
 
 WID_PLUGIN = 5
-WID_PLUGIN_GENERATOR = 7
-
 SYSEX_HEADER = [0xF0, 0x00, 0x20, 0x6B, 0x7F, 0x42]
 
-# -------------------------------------------------- load Arturia's script ----
 
+def _log(*parts):
+    if DEBUG:
+        print("Serum Bridge:", *parts)
+
+
+# -------------------------------------------------- load Arturia's script ----
 
 def _find_arturia_dir():
     configured = _setting("ARTURIA_DIR", None)
@@ -138,8 +111,8 @@ try:
     import device_KLEss3 as arturia
 except Exception as e:  # keep the bridge usable even if Arturia's script is missing
     arturia = None
-    _log("Serum Bridge: could not load Arturia's script from %s (%s)." % (ARTURIA_DIR, e))
-    _log("Serum Bridge: set ARTURIA_DIR in serum_bridge_config.py. Running Serum browsing only.")
+    print("Serum Bridge: could not load Arturia's script from %s (%s)." % (ARTURIA_DIR, e))
+    print("Serum Bridge: set ARTURIA_DIR in serum_bridge_config.py. Running Serum control only.")
 
 
 def _arturia(callback, *args):
@@ -156,27 +129,27 @@ step_high = False       # True between the 0 and the 127 half of a step
 next_step_ms = 0.0
 preview_at_ms = None    # when to start the preview note(s)
 preview_off_ms = None   # when to release the sounding preview
-preview_channel = None  # global channel index the preview is sounding on
-serum_channel = None    # global channel index of the focused Serum (or its Patcher)
-serum_direct = True     # False when that Serum sits inside Patcher
+preview_channel = None  # channel the preview is sounding on
+serum_channel = None    # channel of the focused Serum (or of its Patcher)
 held_notes = set()      # keys/pads currently held on the KeyLab
+macro_first_param = None    # param index of Macro 1; same for every Serum 2 instance
 
 
 def now_ms():
     return time.monotonic() * 1000.0
 
 
-def _forward_mode():
-    return FORWARD_MODE if serum_direct else PATCHER_FORWARD_MODE
-
-
 # --------------------------------------------------------------- helpers ----
 
-def _send_sysex(data):
+def _safe(fn, *args):
     try:
-        device.midiOutSysex(bytes(SYSEX_HEADER + data + [0xF7]))
+        return fn(*args)
     except Exception:
-        pass
+        return None
+
+
+def _send_sysex(data):
+    _safe(device.midiOutSysex, bytes(SYSEX_HEADER + data + [0xF7]))
 
 
 def _ascii(text, maxlen=16):
@@ -190,87 +163,73 @@ def show(line1, line2):
                 + _ascii(line2) + [0x00, 0x01])
 
 
-def _selected_channel_global():
+def _show_knob(name, value):
+    """Arturia's knob popup (name, percentage, ring), or a plain popup as fallback."""
+    percent = "%d%%" % round(value * 100 / 127)
     try:
-        return channels.selectedChannel(0, 0, 1)
+        arturia._KLEss3.paged_display().SetCenterPage(
+            14, line1=name, line2=percent, hw_value=value, transient=1)
+    except Exception:
+        show(name, percent)
+
+
+def _selected_channel():
+    try:
+        return channels.selectedChannel(0, 0, 1)    # global index
     except TypeError:
         return channels.selectedChannel()
 
 
-def _is_serum(text):
-    text = str(text or "").lower()
-    return "serum 2" in text and "fx" not in text
-
-
-def _safe(fn, *args):
+def _plugin_name(index):
     try:
-        return fn(*args)
-    except Exception:
-        return None
-
-
-def _plugin_window_focused():
-    for wid in (WID_PLUGIN_GENERATOR, WID_PLUGIN):
-        if _safe(ui.getFocused, wid):
-            return True
-    return False
-
-
-def _selected_plugin_name(index):
-    try:
-        return plugins.getPluginName(index, -1, False, True)
+        return str(plugins.getPluginName(index, -1, False, True))
     except TypeError:
-        return plugins.getPluginName(channels.selectedChannel())
+        return str(plugins.getPluginName(channels.selectedChannel()))
+
+
+def _channel_name(index):
+    try:
+        return str(channels.getChannelName(index, True))
+    except TypeError:
+        return str(channels.getChannelName(index))
 
 
 def focused_serum():
     """(channel, direct) when a Serum 2 window is focused, else (None, False).
 
-    direct=True: Serum sits on the channel itself, so its parameters can be set.
-    direct=False: Serum is inside a host such as Patcher; 'channel' is the host's
-    channel (used for the preview note) and Serum is reached via MIDI only.
+    direct=True: Serum is the channel's plugin, so its parameters can be set.
+    direct=False: Serum sits inside Patcher. FL reports every window inside
+    Patcher as Patcher itself, so a focused Patcher channel counts; Serum is
+    then reached via MIDI only, and 'channel' is the Patcher's (for the preview).
     """
-    if not _plugin_window_focused():
+    if not _safe(ui.getFocused, WID_PLUGIN):
         return None, False
-    index = _safe(_selected_channel_global)
+    index = _safe(_selected_channel)
     if index is None:
         return None, False
-    channel_plugin = _safe(_selected_plugin_name, index)
-    if _is_serum(channel_plugin):
+    name = _safe(_plugin_name, index) or ""
+    if "serum 2" in name.lower() and "fx" not in name.lower():
         return index, True
-    focused_name = _safe(ui.getFocusedPluginName)
-    if _is_serum(focused_name) or _is_serum(_safe(ui.getFocusedFormCaption)):
-        return index, False
-    # FL reports a plugin window inside Patcher as the Patcher itself, so a focused
-    # Patcher channel counts as "Serum inside Patcher". Only plugins listening on
-    # SERUM_PORT react to what the bridge sends.
-    if PATCHER_IS_SERUM_HOST and (str(channel_plugin) == "Patcher" or str(focused_name) == "Patcher"):
-        name = str(_safe(channels.getChannelName, index, True) or _safe(channels.getChannelName, index) or "")
-        if not PATCHER_CHANNEL_FILTER or PATCHER_CHANNEL_FILTER.lower() in name.lower():
+    if PATCHER_IS_SERUM_HOST and name == "Patcher":
+        channel_name = _safe(_channel_name, index) or ""
+        if not PATCHER_CHANNEL_FILTER or PATCHER_CHANNEL_FILTER.lower() in channel_name.lower():
             return index, False
     return None, False
 
 
-def debug_focus():
-    _log("Serum Bridge focus: generator=%s plugin=%s formID=%s pluginName=%r caption=%r "
-          "selected=%r channelPlugin=%r"
-          % (_safe(ui.getFocused, WID_PLUGIN_GENERATOR), _safe(ui.getFocused, WID_PLUGIN),
-             _safe(ui.getFocusedFormID), _safe(ui.getFocusedPluginName),
-             _safe(ui.getFocusedFormCaption), _safe(_selected_channel_global),
-             _safe(_selected_plugin_name, _safe(_selected_channel_global))))
-
-
-def _cc(cc, value):
-    # FL routes a forwarded CC to plugins whose wrapper MIDI input port equals the top byte.
-    return 0xB0 | (cc << 8) | (value << 16) | (SERUM_PORT << 24)
+def _forward_cc(cc, value):
+    """Send a CC to the plugins listening on SERUM_PORT (port in the message's top byte)."""
+    device.forwardMIDICC(0xB0 | (cc << 8) | (value << 16) | (SERUM_PORT << 24), FORWARD_MODE)
 
 
 def _note(channel, note, velocity):
     try:
         channels.midiNoteOn(channel, note, velocity)
     except Exception as e:
-        _log("Serum Bridge: preview note failed:", e)
+        print("Serum Bridge: preview note failed:", e)
 
+
+# ---------------------------------------------------------------- presets ----
 
 def stop_preview():
     global preview_off_ms, preview_channel
@@ -280,8 +239,6 @@ def stop_preview():
     preview_channel = None
     preview_off_ms = None
 
-
-# --------------------------------------------------------------- actions ----
 
 def queue_steps(delta):
     global pending_steps, preview_at_ms
@@ -301,15 +258,14 @@ def _run_steps(t):
     cc = PRESET_NEXT_CC if pending_steps > 0 else PRESET_PREV_CC
     try:
         if not step_high:
-            device.forwardMIDICC(_cc(cc, 0), _forward_mode())    # arm the rising edge
+            _forward_cc(cc, 0)          # arm the rising edge
             step_high = True
             next_step_ms = t + EDGE_GAP_MS
             return
-        device.forwardMIDICC(_cc(cc, 127), _forward_mode())      # Serum steps here
-        if DEBUG:
-            _log("Serum Bridge: sent CC%d 0/127 to port %d (mode %d)" % (cc, SERUM_PORT, _forward_mode()))
+        _forward_cc(cc, 127)            # Serum steps here
+        _log("sent CC%d 0/127 to port %d" % (cc, SERUM_PORT))
     except Exception as e:
-        _log("Serum Bridge: forwardMIDICC failed:", e)
+        print("Serum Bridge: forwardMIDICC failed:", e)
         pending_steps = 0
         step_high = False
         return
@@ -345,9 +301,6 @@ def _track_held_notes(event):
 
 # ---------------------------------------------------------------- macros ----
 
-macro_first_param = None    # param index of Macro 1; same for every Serum 2 instance
-
-
 def _param_name(param, channel):
     try:
         return str(plugins.getParamName(param, channel, -1, True))
@@ -360,41 +313,28 @@ def _find_macros(channel):
     global macro_first_param
     if macro_first_param is not None:
         return macro_first_param
+    macro_first_param = -1
     try:
         try:
             count = plugins.getParamCount(channel, -1, True)
         except TypeError:
             count = plugins.getParamCount(channel)
-        fallback = None
         for i in range(count):
             name = _param_name(i, channel)
             if name == MACRO_ANCHOR_PARAM:
                 macro_first_param = i + 1
                 break
-            if fallback is None and name == "Macro 1":
-                fallback = i
-        else:
-            macro_first_param = fallback
+            if name == "Macro 1" and macro_first_param < 0:
+                macro_first_param = i
     except Exception as e:
-        _log("Serum Bridge: macro lookup failed:", e)
-    if macro_first_param is None:
-        _log("Serum Bridge: Serum's macro parameters not found; knobs stay with Arturia's script.")
-        macro_first_param = -1
-    elif DEBUG:
-        _log("Serum Bridge: Macro 1 is parameter", macro_first_param)
+        print("Serum Bridge: macro lookup failed:", e)
+    if macro_first_param < 0:
+        print("Serum Bridge: Serum's macro parameters not found; knobs stay with Arturia's script.")
     return macro_first_param
 
 
-def _show_knob(name, value):
-    """Arturia's knob popup (name, percentage, ring), or a plain popup as fallback."""
-    try:
-        arturia._KLEss3.paged_display().SetCenterPage(
-            14, line1=name, line2="%d%%" % round(value * 100 / 127), hw_value=value, transient=1)
-    except Exception:
-        show(name, "%d%%" % round(value * 100 / 127))
-
-
 def set_macro(channel, knob, value):
+    """Serum directly on a channel: set the macro parameter."""
     first = _find_macros(channel)
     if first < 0:
         return False
@@ -408,42 +348,37 @@ def set_macro(channel, knob, value):
 
 
 def send_macro_cc(knob, value):
-    """Serum inside Patcher: parameters can't be reached, so send a CC on Serum's port.
-    MIDI-learn the macro in Serum once (right-click macro > MIDI Learn, turn the knob)."""
+    """Serum inside Patcher: its parameters can't be reached, so send a CC that
+    the macro has been MIDI-learned to (right-click macro > MIDI Learn)."""
     if not MACRO_CCS:
         return False
-    cc = MACRO_CCS[knob]
     try:
-        device.forwardMIDICC(_cc(cc, value), _forward_mode())
+        _forward_cc(MACRO_CCS[knob], value)
     except Exception as e:
-        _log("Serum Bridge: forwardMIDICC failed:", e)
+        print("Serum Bridge: forwardMIDICC failed:", e)
         return False
-    if DEBUG:
-        _log("Serum Bridge: knob %d -> CC%d=%d on port %d" % (knob + 1, cc, value, SERUM_PORT))
     _show_knob("Macro %d" % (knob + 1), value)
     return True
 
 
+# ------------------------------------------------------------- dispatch ----
+
 def _handle_serum_event(event):
     """Return True if the event was a Serum control (browse or macro) and has been used."""
-    global serum_channel, serum_direct
+    global serum_channel
     if (event.status & 0xF0) != 0xB0:
         return False
     cc, value = event.data1, event.data2
     is_knob = KNOBS_TO_MACROS and cc in CC_KNOBS
     if cc not in (CC_CONTEXT3, CC_CONTEXT4, CC_MAIN_ENCODER) and not is_knob:
         return False
-    if DEBUG:
-        debug_focus()
     channel, direct = focused_serum()
     if channel is None:
         return False
-    serum_channel, serum_direct = channel, direct
+    serum_channel = channel
     if is_knob:
         knob = CC_KNOBS.index(cc)
-        if direct:
-            return set_macro(channel, knob, value)
-        return send_macro_cc(knob, value)
+        return set_macro(channel, knob, value) if direct else send_macro_cc(knob, value)
     if cc == CC_MAIN_ENCODER:
         if value != 64:
             queue_steps(1 if value > 64 else -1)
@@ -455,11 +390,7 @@ def _handle_serum_event(event):
 # ------------------------------------------------------------ FL callbacks ----
 
 def OnInit():
-    _log("Serum Bridge: Arturia script from", ARTURIA_DIR if arturia else "<not loaded>")
-    if DEBUG:
-        _log("Serum Bridge: port %d, next CC%d, prev CC%d, forward mode %d (Patcher: %d), log %s"
-             % (SERUM_PORT, PRESET_NEXT_CC, PRESET_PREV_CC, FORWARD_MODE, PATCHER_FORWARD_MODE,
-                LOG_PATH))
+    print("Serum Bridge: Arturia script from", ARTURIA_DIR if arturia else "<not loaded>")
     _arturia("OnInit")
 
 

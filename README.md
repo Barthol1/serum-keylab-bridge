@@ -74,18 +74,20 @@ script uses the same mechanism for Analog Lab on port 10.
 
 The bridge also works when Serum 2 sits inside Patcher. FL reports any window inside Patcher as
 Patcher itself, so it can't tell which inner plugin you clicked. The bridge therefore treats a
-focused **Patcher** window, or any plugin window inside it, as "Serum inside Patcher". Three
-differences:
+focused **Patcher** window, or any plugin window inside it, as "Serum inside Patcher". What's
+different:
 
-- **Each inner Serum you want to browse needs its own wrapper MIDI input port set to 100.** The
-  bridge sends to every plugin listening on port 100, so give that port only to the Serum(s) you
-  browse, e.g. the lead. The bass then never changes preset.
+- **Patcher has to pass MIDI events on to the inner Serum.** Without that, the CCs arrive at
+  Patcher and stop there.
+- **Give port 100 only to the Serum(s) you browse**, e.g. the lead. Set it in each inner Serum's
+  wrapper settings (gear icon > MIDI > Input port). Serum's preset CCs are a global
+  preference, so any Serum that receives them steps.
 - To limit this to particular Patcher channels, set `PATCHER_CHANNEL_FILTER` to part of their
   channel name (e.g. `"BAND"`). Other Patchers then keep Arturia's normal behaviour.
 - **Macros can't be set directly**, because FL's scripting API can't reach plugins inside
-  Patcher. Instead, knobs 1–8 send CC 20–27 on port 100. In Serum, right-click each macro,
-  choose *MIDI Learn*, and turn the matching knob once. Serum keeps the mapping when you change
-  presets, as long as *Load MIDI Map from Presets* is off.
+  Patcher. Instead, knobs 1–8 send CC 56–63, which the KeyLab never sends itself. In Serum,
+  right-click each macro, choose *MIDI Learn*, and turn the matching knob once. Serum keeps the
+  mapping when you change presets, as long as *Load MIDI Map from Presets* is off.
 
 The preview note plays on the Patcher channel, so it passes through your split. Keep
 `PREVIEW_NOTES` on the side of the split you browse.
@@ -105,10 +107,9 @@ The installer never overwrites this file.
 | Setting | Default | Meaning |
 |---|---|---|
 | `KNOBS_TO_MACROS` | `True` | Knobs 1–8 control Serum's macros while Serum is focused |
-| `MACRO_CCS` | `[20 … 27]` | CCs the knobs send for Serum inside Patcher (MIDI-learn them in Serum) |
+| `MACRO_CCS` | `[56 … 63]` | CCs the knobs send for Serum inside Patcher (MIDI-learn them in Serum) |
 | `PATCHER_IS_SERUM_HOST` | `True` | Treat a focused Patcher window as "Serum inside Patcher" |
 | `PATCHER_CHANNEL_FILTER` | `""` | Only Patcher channels whose name contains this text (`""` = all) |
-| `PATCHER_FORWARD_MODE` | `0` | `forwardMIDICC` target for Serum inside Patcher (0 = every plugin on `SERUM_PORT`) |
 | `PREVIEW_ENABLED` | `True` | Play a preview after a preset change |
 | `PREVIEW_NOTES` | `[60]` | Notes to play, e.g. `[60, 63, 67]` for a chord |
 | `PREVIEW_VELOCITY` | `100` | Preview velocity |
@@ -117,7 +118,7 @@ The installer never overwrites this file.
 | `PRESET_NEXT_CC` / `PRESET_PREV_CC` | `14` / `15` | Must match Serum's prefs. Run the installer again after changing them |
 | `SERUM_PORT` | `100` | Port the bridge sends to (0–127). Must match Serum's wrapper MIDI input port |
 | `FORWARD_MODE` | `1` | `forwardMIDICC` target: 0 all plugins, 1 focused plugin, 2 selected channels |
-| `DEBUG` | `False` | Print every step to View > Script output |
+| `DEBUG` | `False` | Print each preset step to View > Script output |
 | `STEP_INTERVAL_MS` | `150` | Pause between preset steps |
 | `MAX_QUEUED_STEPS` | `8` | Most steps queued when the encoder is turned fast |
 | `ARTURIA_DIR` | auto | Folder holding Arturia's `device_KLEss3.py` |
