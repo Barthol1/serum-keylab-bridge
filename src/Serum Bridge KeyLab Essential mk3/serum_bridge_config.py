@@ -21,6 +21,14 @@ KNOBS_TO_MACROS = True
 # CCs on SERUM_PORT. MIDI-learn each macro in Serum once (right-click > MIDI Learn).
 MACRO_CCS = [20, 21, 22, 23, 24, 25, 26, 27]
 
+# FL reports a plugin window inside Patcher as Patcher itself, so it can't see
+# which inner plugin is focused. With this on, a focused Patcher window counts as
+# "Serum inside Patcher"; only the Serums on SERUM_PORT react.
+PATCHER_IS_SERUM_HOST = True
+# Only treat Patcher channels whose name contains this text as Serum hosts
+# (e.g. "BAND"). "" = every Patcher channel.
+PATCHER_CHANNEL_FILTER = ""
+
 # Print every preset step to View > Script output.
 DEBUG = False
 

@@ -72,11 +72,16 @@ script uses the same mechanism for Analog Lab on port 10.
 
 ### Serum inside Patcher (e.g. a keyboard split with VFX Keyboard Splitter)
 
-The bridge also works when Serum 2 sits inside Patcher. Open the inner Serum's window, so that
-the window is focused rather than Patcher, and browse as usual. Two differences:
+The bridge also works when Serum 2 sits inside Patcher. FL reports any window inside Patcher as
+Patcher itself, so it can't tell which inner plugin you clicked. The bridge therefore treats a
+focused **Patcher** window, or any plugin window inside it, as "Serum inside Patcher". Three
+differences:
 
-- **Each inner Serum needs its own wrapper MIDI input port set to 100.** If only the instances
-  you browse (e.g. the lead) listen on port 100, the others never change preset.
+- **Each inner Serum you want to browse needs its own wrapper MIDI input port set to 100.** The
+  bridge sends to every plugin listening on port 100, so give that port only to the Serum(s) you
+  browse, e.g. the lead. The bass then never changes preset.
+- To limit this to particular Patcher channels, set `PATCHER_CHANNEL_FILTER` to part of their
+  channel name (e.g. `"BAND"`). Other Patchers then keep Arturia's normal behaviour.
 - **Macros can't be set directly**, because FL's scripting API can't reach plugins inside
   Patcher. Instead, knobs 1–8 send CC 20–27 on port 100. In Serum, right-click each macro,
   choose *MIDI Learn*, and turn the matching knob once. Serum keeps the mapping when you change
@@ -101,6 +106,9 @@ The installer never overwrites this file.
 |---|---|---|
 | `KNOBS_TO_MACROS` | `True` | Knobs 1–8 control Serum's macros while Serum is focused |
 | `MACRO_CCS` | `[20 … 27]` | CCs the knobs send for Serum inside Patcher (MIDI-learn them in Serum) |
+| `PATCHER_IS_SERUM_HOST` | `True` | Treat a focused Patcher window as "Serum inside Patcher" |
+| `PATCHER_CHANNEL_FILTER` | `""` | Only Patcher channels whose name contains this text (`""` = all) |
+| `PATCHER_FORWARD_MODE` | `0` | `forwardMIDICC` target for Serum inside Patcher (0 = every plugin on `SERUM_PORT`) |
 | `PREVIEW_ENABLED` | `True` | Play a preview after a preset change |
 | `PREVIEW_NOTES` | `[60]` | Notes to play, e.g. `[60, 63, 67]` for a chord |
 | `PREVIEW_VELOCITY` | `100` | Preview velocity |

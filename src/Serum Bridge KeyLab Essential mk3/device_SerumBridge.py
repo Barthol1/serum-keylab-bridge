@@ -61,6 +61,11 @@ FORWARD_MODE = _setting("FORWARD_MODE", 1)
 # Serum inside Patcher: FL's "focused plugin" is Patcher, so send to every plugin
 # on SERUM_PORT instead. Give only the Serums you browse that port.
 PATCHER_FORWARD_MODE = _setting("PATCHER_FORWARD_MODE", 0)
+# FL can't tell which plugin inside Patcher is focused, so a focused Patcher window
+# is treated as "Serum inside Patcher". Optionally only for Patcher channels whose
+# name contains PATCHER_CHANNEL_FILTER (e.g. "BAND"); "" = every Patcher.
+PATCHER_IS_SERUM_HOST = _setting("PATCHER_IS_SERUM_HOST", True)
+PATCHER_CHANNEL_FILTER = _setting("PATCHER_CHANNEL_FILTER", "")
 DEBUG = _setting("DEBUG", False)
 
 
@@ -230,13 +235,19 @@ def focused_serum():
     index = _safe(_selected_channel_global)
     if index is None:
         return None, False
-    if _is_serum(_safe(_selected_plugin_name, index)):
+    channel_plugin = _safe(_selected_plugin_name, index)
+    if _is_serum(channel_plugin):
         return index, True
-    # Inside Patcher the selected channel is Patcher; look at the focused window instead.
     focused_name = _safe(ui.getFocusedPluginName)
-    caption = _safe(ui.getFocusedFormCaption)
-    if _is_serum(focused_name) or _is_serum(caption):
+    if _is_serum(focused_name) or _is_serum(_safe(ui.getFocusedFormCaption)):
         return index, False
+    # FL reports a plugin window inside Patcher as the Patcher itself, so a focused
+    # Patcher channel counts as "Serum inside Patcher". Only plugins listening on
+    # SERUM_PORT react to what the bridge sends.
+    if PATCHER_IS_SERUM_HOST and (str(channel_plugin) == "Patcher" or str(focused_name) == "Patcher"):
+        name = str(_safe(channels.getChannelName, index, True) or _safe(channels.getChannelName, index) or "")
+        if not PATCHER_CHANNEL_FILTER or PATCHER_CHANNEL_FILTER.lower() in name.lower():
+            return index, False
     return None, False
 
 
