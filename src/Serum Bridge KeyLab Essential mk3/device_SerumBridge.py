@@ -17,9 +17,10 @@ Everything else, and everything while another window is focused, goes to
 Arturia's script unchanged.
 
 How it reaches Serum: Serum 2's "CCForRocker Preset +/-" preference steps
-presets on a MIDI CC rising edge. FL only delivers raw CCs to a VST3 when the
-plugin wrapper's MIDI input port matches the controller's port, so set Serum's
-wrapper input port to the KeyLab's port. See README.md.
+presets on a MIDI CC rising edge. The bridge sends those CCs with
+device.forwardMIDICC to a dedicated MIDI port (SERUM_PORT, default 100); set
+Serum's wrapper MIDI input port to that number. Don't use the KeyLab's own
+port there: Serum would then also receive every raw KeyLab CC. See README.md.
 """
 
 import os
@@ -53,8 +54,11 @@ PREVIEW_VELOCITY = _setting("PREVIEW_VELOCITY", 100)
 PREVIEW_DELAY_MS = _setting("PREVIEW_DELAY_MS", 250)
 PREVIEW_LENGTH_MS = _setting("PREVIEW_LENGTH_MS", 800)
 
+SERUM_PORT = _setting("SERUM_PORT", 100) & 0x7F  # top byte of a signed 32-bit message
+FORWARD_MODE = _setting("FORWARD_MODE", 1)  # forwardMIDICC: 0 all, 1 focused plugin, 2 selected channels
+DEBUG = _setting("DEBUG", False)
+
 EDGE_GAP_MS = 20            # between the CC=0 and CC=127 halves of one step
-FORWARD_MODE = 1            # device.forwardMIDICC: 1 = focused plugin
 
 # KeyLab Essential mk3, DAW mode
 CC_CONTEXT3 = 46
@@ -170,7 +174,8 @@ def focused_serum_channel():
 
 
 def _cc(cc, value):
-    return 0xB0 | (cc << 8) | (value << 16)
+    # FL routes a forwarded CC to plugins whose wrapper MIDI input port equals the top byte.
+    return 0xB0 | (cc << 8) | (value << 16) | (SERUM_PORT << 24)
 
 
 def _note(channel, note, velocity):
@@ -214,6 +219,8 @@ def _run_steps(t):
             next_step_ms = t + EDGE_GAP_MS
             return
         device.forwardMIDICC(_cc(cc, 127), FORWARD_MODE)      # Serum steps here
+        if DEBUG:
+            print("Serum Bridge: sent CC%d 0/127 to port %d (mode %d)" % (cc, SERUM_PORT, FORWARD_MODE))
     except Exception as e:
         print("Serum Bridge: forwardMIDICC failed:", e)
         pending_steps = 0

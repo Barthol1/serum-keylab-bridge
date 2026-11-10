@@ -113,10 +113,11 @@ if ($SkipSerumPrefs) {
 # ---------------------------------------------------------- 3. next steps ----
 Write-Host ""
 Write-Step "Finish the setup in FL Studio"
+$SerumPort = Get-ConfigCC 'SERUM_PORT' 100
 Write-Host "  1. Options > MIDI settings: select the KeyLab's DAW port (input and output) and"
 Write-Host "     set Controller type to 'KeyLab Essential mk3 + Serum 2 Bridge' instead of"
-Write-Host "     Arturia's script. Note the port number (e.g. 236) and give the output the same one."
+Write-Host "     Arturia's script."
 Write-Host "  2. Open Serum 2, click the gear (wrapper settings) at the top left of its window,"
-Write-Host "     and set MIDI > Input port to that same port number. Do this per Serum instance"
-Write-Host "     (or save it in a template/project)."
+Write-Host "     and set MIDI > Input port to $SerumPort (the bridge's Serum port, NOT the KeyLab's"
+Write-Host "     port). Do this per Serum instance, or save it in a template/project."
 Write-Host "  3. Focus Serum's window and turn the main encoder, or press context buttons 3 / 4."

@@ -10,6 +10,14 @@ ARTURIA_DIR = None
 PRESET_NEXT_CC = 14
 PRESET_PREV_CC = 15
 
+# MIDI port the bridge sends Serum's preset CCs to. Set Serum's FL wrapper
+# MIDI input port (gear icon > MIDI > Input port) to this number. Use a port
+# no hardware controller uses (0-127); NOT the KeyLab's own port.
+SERUM_PORT = 100
+
+# Print every preset step to View > Script output.
+DEBUG = False
+
 # Pause after each preset step so Serum can finish loading before the next one.
 STEP_INTERVAL_MS = 150
 # Most steps queued at once when the encoder is turned fast.

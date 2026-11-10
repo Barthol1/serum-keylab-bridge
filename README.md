@@ -32,12 +32,14 @@ normally does.
    - sets Serum 2's preset-stepping CCs in `%APPDATA%\Xfer\Serum 2\Serum2Prefs.json`, after
      making a timestamped backup
 
-3. In FL Studio, open **Options > MIDI settings**. Select the KeyLab's **DAW** port, set
-   **Controller type** to **KeyLab Essential mk3 + Serum 2 Bridge**, and give it a port number
-   (for example 236). Set the matching output port to the same number.
+3. In FL Studio, open **Options > MIDI settings**. Select the KeyLab's **DAW** port and set
+   **Controller type** to **KeyLab Essential mk3 + Serum 2 Bridge**. Give the input and the
+   matching output the same port number.
 4. Open Serum 2 and click the **gear icon** at the top left of the plugin window (FL's wrapper
-   settings). Under **MIDI**, set **Input port** to the same port number. Do this for each Serum
-   instance. Saving it in a template or default project saves repeating it.
+   settings). Under **MIDI**, set **Input port** to **100**, the bridge's Serum port. Don't use
+   the KeyLab's own port here: Serum would then also receive every raw KeyLab CC, and buttons
+   or knobs could step presets by accident. Do this for each Serum instance. Saving it in a
+   template or default project saves repeating it.
 
 Installer options: `-HardwareDir <path>` if your FL user data folder is somewhere else,
 `-SkipSerumPrefs` to leave Serum's prefs alone, and `-Force` to edit the prefs while FL is open
@@ -63,8 +65,9 @@ The bridge:
   can finish loading each preset
 - plays a short preview note on the Serum channel once a preset has loaded
 
-FL only delivers raw MIDI CCs to a VST3 plugin when the plugin wrapper's MIDI input port matches
-the controller's port. That's why step 4 is needed.
+The CCs go out through FL's `device.forwardMIDICC`, which delivers to plugins whose wrapper MIDI
+input port matches the port number in the message. That's why step 4 is needed. Arturia's own
+script uses the same mechanism for Analog Lab on port 10.
 
 ### Limitations
 
@@ -86,15 +89,18 @@ The installer never overwrites this file.
 | `PREVIEW_DELAY_MS` | `250` | Wait for the preset to load before the preview plays |
 | `PREVIEW_LENGTH_MS` | `800` | Preview note length |
 | `PRESET_NEXT_CC` / `PRESET_PREV_CC` | `14` / `15` | Must match Serum's prefs. Run the installer again after changing them |
+| `SERUM_PORT` | `100` | Port the bridge sends to (0–127). Must match Serum's wrapper MIDI input port |
+| `FORWARD_MODE` | `1` | `forwardMIDICC` target: 0 all plugins, 1 focused plugin, 2 selected channels |
+| `DEBUG` | `False` | Print every step to View > Script output |
 | `STEP_INTERVAL_MS` | `150` | Pause between preset steps |
 | `MAX_QUEUED_STEPS` | `8` | Most steps queued when the encoder is turned fast |
 | `ARTURIA_DIR` | auto | Folder holding Arturia's `device_KLEss3.py` |
 
 ## Troubleshooting
 
-- **Nothing happens in Serum.** Check that Serum's wrapper MIDI input port equals the KeyLab DAW
-  port number (step 4), and that Serum's *CC for rockers* is enabled with CC 14/15. Serum's MIDI
-  Learn is a quick test: if it can learn a KeyLab knob, CCs are getting through.
+- **Nothing happens in Serum.** Check that Serum's wrapper MIDI input port is 100 (step 4), and
+  that Serum's *CC for rockers* is enabled with CC 14/15. Close FL before running the installer,
+  or the prefs aren't updated. Set `DEBUG = True` to see each step in View > Script output.
 - **The DAW integration stops working.** Look in **View > Script output**. The bridge prints
   where it loaded Arturia's script from. If it couldn't find it, set `ARTURIA_DIR` in
   `serum_bridge_config.py`.
