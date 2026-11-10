@@ -9,6 +9,7 @@ channel rack, browser, pads, knobs) keeps working as before.
 | Main encoder turn | Previous / next preset |
 | Context button 3 | Previous preset |
 | Context button 4 | Next preset |
+| Knobs 1–8 | Serum macros 1–8. The screen shows the preset's macro name and value |
 
 After each preset change, a short note (C4) plays so you can hear the new sound. It's skipped
 while you're holding keys. Focus any other window and every control does what Arturia's script
@@ -83,6 +84,7 @@ The installer never overwrites this file.
 
 | Setting | Default | Meaning |
 |---|---|---|
+| `KNOBS_TO_MACROS` | `True` | Knobs 1–8 control Serum's macros while Serum is focused |
 | `PREVIEW_ENABLED` | `True` | Play a preview after a preset change |
 | `PREVIEW_NOTES` | `[60]` | Notes to play, e.g. `[60, 63, 67]` for a chord |
 | `PREVIEW_VELOCITY` | `100` | Preview velocity |

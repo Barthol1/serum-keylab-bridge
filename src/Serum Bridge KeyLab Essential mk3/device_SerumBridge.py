@@ -11,6 +11,7 @@ browsing:
     Main encoder turn ...... previous / next preset
     Context button 3 ....... previous preset
     Context button 4 ....... next preset
+    Knobs 1-8 .............. Serum macros 1-8
   After each preset change a short preview note plays (unless you hold keys).
 
 Everything else, and everything while another window is focused, goes to
@@ -64,6 +65,12 @@ EDGE_GAP_MS = 20            # between the CC=0 and CC=127 halves of one step
 CC_CONTEXT3 = 46
 CC_CONTEXT4 = 47
 CC_MAIN_ENCODER = 116       # relative: >64 clockwise, <64 counter-clockwise
+CC_KNOBS = (96, 97, 98, 99, 100, 101, 102, 103)   # knobs 1-8, absolute 0-127
+
+KNOBS_TO_MACROS = _setting("KNOBS_TO_MACROS", True)
+# Serum 2 lists its 8 macros right after this parameter. Macro names change per
+# preset (e.g. "DRIVE"), so they're found by position, not by name.
+MACRO_ANCHOR_PARAM = "Mod 64 Out"
 
 WID_PLUGIN = 5
 WID_PLUGIN_GENERATOR = 7
@@ -256,18 +263,85 @@ def _track_held_notes(event):
         held_notes.discard((event.status & 0x0F, event.data1))
 
 
+# ---------------------------------------------------------------- macros ----
+
+macro_first_param = None    # param index of Macro 1; same for every Serum 2 instance
+
+
+def _param_name(param, channel):
+    try:
+        return str(plugins.getParamName(param, channel, -1, True))
+    except TypeError:
+        return str(plugins.getParamName(param, channel))
+
+
+def _find_macros(channel):
+    """Locate Macro 1's parameter index once (it doesn't change between presets)."""
+    global macro_first_param
+    if macro_first_param is not None:
+        return macro_first_param
+    try:
+        try:
+            count = plugins.getParamCount(channel, -1, True)
+        except TypeError:
+            count = plugins.getParamCount(channel)
+        fallback = None
+        for i in range(count):
+            name = _param_name(i, channel)
+            if name == MACRO_ANCHOR_PARAM:
+                macro_first_param = i + 1
+                break
+            if fallback is None and name == "Macro 1":
+                fallback = i
+        else:
+            macro_first_param = fallback
+    except Exception as e:
+        print("Serum Bridge: macro lookup failed:", e)
+    if macro_first_param is None:
+        print("Serum Bridge: Serum's macro parameters not found; knobs stay with Arturia's script.")
+        macro_first_param = -1
+    elif DEBUG:
+        print("Serum Bridge: Macro 1 is parameter", macro_first_param)
+    return macro_first_param
+
+
+def _show_knob(name, value):
+    """Arturia's knob popup (name, percentage, ring), or a plain popup as fallback."""
+    try:
+        arturia._KLEss3.paged_display().SetCenterPage(
+            14, line1=name, line2="%d%%" % round(value * 100 / 127), hw_value=value, transient=1)
+    except Exception:
+        show(name, "%d%%" % round(value * 100 / 127))
+
+
+def set_macro(channel, knob, value):
+    first = _find_macros(channel)
+    if first < 0:
+        return False
+    param = first + knob
+    try:
+        plugins.setParamValue(value / 127.0, param, channel, -1, 0, True)
+    except TypeError:
+        plugins.setParamValue(value / 127.0, param, channel)
+    _show_knob(_param_name(param, channel), value)
+    return True
+
+
 def _handle_serum_event(event):
-    """Return True if the event was a Serum browsing control and has been used."""
+    """Return True if the event was a Serum control (browse or macro) and has been used."""
     global serum_channel
     if (event.status & 0xF0) != 0xB0:
         return False
     cc, value = event.data1, event.data2
-    if cc not in (CC_CONTEXT3, CC_CONTEXT4, CC_MAIN_ENCODER):
+    is_knob = KNOBS_TO_MACROS and cc in CC_KNOBS
+    if cc not in (CC_CONTEXT3, CC_CONTEXT4, CC_MAIN_ENCODER) and not is_knob:
         return False
     channel = focused_serum_channel()
     if channel is None:
         return False
     serum_channel = channel
+    if is_knob:
+        return set_macro(channel, CC_KNOBS.index(cc), value)
     if cc == CC_MAIN_ENCODER:
         if value != 64:
             queue_steps(1 if value > 64 else -1)

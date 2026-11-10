@@ -15,6 +15,9 @@ PRESET_PREV_CC = 15
 # no hardware controller uses (0-127); NOT the KeyLab's own port.
 SERUM_PORT = 100
 
+# While Serum 2 is focused, KeyLab knobs 1-8 control Serum's macros 1-8.
+KNOBS_TO_MACROS = True
+
 # Print every preset step to View > Script output.
 DEBUG = False
 
