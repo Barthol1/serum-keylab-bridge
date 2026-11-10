@@ -17,6 +17,9 @@ SERUM_PORT = 100
 
 # While Serum 2 is focused, KeyLab knobs 1-8 control Serum's macros 1-8.
 KNOBS_TO_MACROS = True
+# Serum inside Patcher can't be controlled directly: knobs 1-8 then send these
+# CCs on SERUM_PORT. MIDI-learn each macro in Serum once (right-click > MIDI Learn).
+MACRO_CCS = [20, 21, 22, 23, 24, 25, 26, 27]
 
 # Print every preset step to View > Script output.
 DEBUG = False

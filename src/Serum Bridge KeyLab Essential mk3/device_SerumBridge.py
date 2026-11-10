@@ -71,6 +71,8 @@ KNOBS_TO_MACROS = _setting("KNOBS_TO_MACROS", True)
 # Serum 2 lists its 8 macros right after this parameter. Macro names change per
 # preset (e.g. "DRIVE"), so they're found by position, not by name.
 MACRO_ANCHOR_PARAM = "Mod 64 Out"
+# CCs sent for knobs 1-8 when Serum sits inside Patcher (MIDI-learn them in Serum).
+MACRO_CCS = list(_setting("MACRO_CCS", [20, 21, 22, 23, 24, 25, 26, 27]))
 
 WID_PLUGIN = 5
 WID_PLUGIN_GENERATOR = 7
@@ -158,26 +160,61 @@ def _selected_channel_global():
         return channels.selectedChannel()
 
 
-def focused_serum_channel():
-    """Global channel index of Serum 2 if its plugin window is focused, else None."""
+def _is_serum(text):
+    text = str(text or "").lower()
+    return "serum 2" in text and "fx" not in text
+
+
+def _safe(fn, *args):
     try:
-        focused = ui.getFocused(WID_PLUGIN_GENERATOR)
-    except Exception:
-        focused = ui.getFocused(WID_PLUGIN)
-    if not focused:
-        return None
-    try:
-        index = _selected_channel_global()
-        try:
-            name = plugins.getPluginName(index, -1, False, True)
-        except TypeError:
-            name = plugins.getPluginName(channels.selectedChannel())
+        return fn(*args)
     except Exception:
         return None
-    name = str(name)
-    if "serum 2" in name.lower() and "fx" not in name.lower():
-        return index
-    return None
+
+
+def _plugin_window_focused():
+    for wid in (WID_PLUGIN_GENERATOR, WID_PLUGIN):
+        if _safe(ui.getFocused, wid):
+            return True
+    return False
+
+
+def _selected_plugin_name(index):
+    try:
+        return plugins.getPluginName(index, -1, False, True)
+    except TypeError:
+        return plugins.getPluginName(channels.selectedChannel())
+
+
+def focused_serum():
+    """(channel, direct) when a Serum 2 window is focused, else (None, False).
+
+    direct=True: Serum sits on the channel itself, so its parameters can be set.
+    direct=False: Serum is inside a host such as Patcher; 'channel' is the host's
+    channel (used for the preview note) and Serum is reached via MIDI only.
+    """
+    if not _plugin_window_focused():
+        return None, False
+    index = _safe(_selected_channel_global)
+    if index is None:
+        return None, False
+    if _is_serum(_safe(_selected_plugin_name, index)):
+        return index, True
+    # Inside Patcher the selected channel is Patcher; look at the focused window instead.
+    focused_name = _safe(ui.getFocusedPluginName)
+    caption = _safe(ui.getFocusedFormCaption)
+    if _is_serum(focused_name) or _is_serum(caption):
+        return index, False
+    return None, False
+
+
+def debug_focus():
+    print("Serum Bridge focus: generator=%s plugin=%s formID=%s pluginName=%r caption=%r "
+          "selected=%r channelPlugin=%r"
+          % (_safe(ui.getFocused, WID_PLUGIN_GENERATOR), _safe(ui.getFocused, WID_PLUGIN),
+             _safe(ui.getFocusedFormID), _safe(ui.getFocusedPluginName),
+             _safe(ui.getFocusedFormCaption), _safe(_selected_channel_global),
+             _safe(_selected_plugin_name, _safe(_selected_channel_global))))
 
 
 def _cc(cc, value):
@@ -327,6 +364,23 @@ def set_macro(channel, knob, value):
     return True
 
 
+def send_macro_cc(knob, value):
+    """Serum inside Patcher: parameters can't be reached, so send a CC on Serum's port.
+    MIDI-learn the macro in Serum once (right-click macro > MIDI Learn, turn the knob)."""
+    if not MACRO_CCS:
+        return False
+    cc = MACRO_CCS[knob]
+    try:
+        device.forwardMIDICC(_cc(cc, value), FORWARD_MODE)
+    except Exception as e:
+        print("Serum Bridge: forwardMIDICC failed:", e)
+        return False
+    if DEBUG:
+        print("Serum Bridge: knob %d -> CC%d=%d on port %d" % (knob + 1, cc, value, SERUM_PORT))
+    _show_knob("Macro %d" % (knob + 1), value)
+    return True
+
+
 def _handle_serum_event(event):
     """Return True if the event was a Serum control (browse or macro) and has been used."""
     global serum_channel
@@ -336,12 +390,17 @@ def _handle_serum_event(event):
     is_knob = KNOBS_TO_MACROS and cc in CC_KNOBS
     if cc not in (CC_CONTEXT3, CC_CONTEXT4, CC_MAIN_ENCODER) and not is_knob:
         return False
-    channel = focused_serum_channel()
+    if DEBUG:
+        debug_focus()
+    channel, direct = focused_serum()
     if channel is None:
         return False
     serum_channel = channel
     if is_knob:
-        return set_macro(channel, CC_KNOBS.index(cc), value)
+        knob = CC_KNOBS.index(cc)
+        if direct:
+            return set_macro(channel, knob, value)
+        return send_macro_cc(knob, value)
     if cc == CC_MAIN_ENCODER:
         if value != 64:
             queue_steps(1 if value > 64 else -1)
