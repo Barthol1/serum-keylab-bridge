@@ -77,11 +77,12 @@ Patcher itself, so it can't tell which inner plugin you clicked. The bridge ther
 focused **Patcher** window, or any plugin window inside it, as "Serum inside Patcher". What's
 different:
 
-- **Patcher has to pass MIDI events on to the inner Serum.** Without that, the CCs arrive at
-  Patcher and stop there.
-- **Give port 100 only to the Serum(s) you browse**, e.g. the lead. Set it in each inner Serum's
-  wrapper settings (gear icon > MIDI > Input port). Serum's preset CCs are a global
-  preference, so any Serum that receives them steps.
+- **Route port 100 into the Serum you browse.** Inside Patcher, set the **From FL Studio** node
+  to forward MIDI port **100**, then connect that MIDI output to the lead Serum's MIDI input.
+  Without this, the CCs arrive at Patcher and stop there.
+- **Connect it only to the Serum(s) you browse.** Serum's preset CCs are a global preference, so
+  any Serum that receives them steps. A bass Serum that isn't connected to port 100 never
+  changes preset.
 - To limit this to particular Patcher channels, set `PATCHER_CHANNEL_FILTER` to part of their
   channel name (e.g. `"BAND"`). Other Patchers then keep Arturia's normal behaviour.
 - **Macros can't be set directly**, because FL's scripting API can't reach plugins inside
